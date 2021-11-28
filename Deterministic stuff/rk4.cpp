@@ -253,11 +253,10 @@ std::function<State(const State, double)> hamilton_equations(StateSpace &ss, GiN
 
 int main()
 {
-	using namespace GiNaC;
-	auto ss = StateSpace(1);
+	auto ss = StateSpace(1); // State space of dimension 1
 	auto hamiltonian = .5 * ss.p(0) * ss.p(0) + .5 * ss.q(0) * ss.q(0);
 	auto hamilton_eqs = hamilton_equations(ss, hamiltonian);
-	auto s = State(1);
+	auto s = State(1); // State vector uwu
 	s.q(0)=1;
 	s.p(0)=0;
 	double dt=0.001;
