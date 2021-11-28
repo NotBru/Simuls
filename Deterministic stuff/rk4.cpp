@@ -2,6 +2,7 @@
 // #include <functional>
 #include <functional>
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <valarray>
 
@@ -9,18 +10,15 @@
 
 template<typename T>
 void rk4_step(
-	std::function<T(T&, double)> f,
-	T &x, double t, double dt,
-	std::function<T(T&, T&)> sum = [](T &left, T &right)->T{ return left+right; },
-	std::function<T(double, T&)> prod = [](double left, T &right)->T{ return left*right; }
+	std::function<T(const T, double)> f,
+	T &x, double t, double dt
 )
 {
 	T k1=f(x, t),
-	  k2=f(sum(x, prod(0.5*dt, k1)), t+0.5*dt),
-	  k3=f(sum(x, prod(0.5*dt, k2)), t+0.5*dt),
-	  k4=f(sum(x, prod(dt, k3)), t+dt);
-	x = sum(x, prod(1./6, sum(sum(k1, prod(2, k2)), sum(prod(2, k3), k4))));
-	x+=1./6*(k1+2*k2+2*k3+k4);
+	  k2=f(x+0.5*dt*k1, t+0.5*dt),
+	  k3=f(x+0.5*dt*k2, t+0.5*dt),
+	  k4=f(x+dt*k3, t+dt);
+	x+=dt/6*(k1+2*k2+2*k3+k4);
 }
 
 class StateSpace
@@ -43,7 +41,17 @@ class StateSpace
 			return coordinates[i];
 		}
 
+		GiNaC::realsymbol q(int i) const
+		{
+			return coordinates[i];
+		}
+
 		GiNaC::realsymbol &p(int i)
+		{
+			return momentums[i];
+		}
+
+		GiNaC::realsymbol p(int i) const
 		{
 			return momentums[i];
 		}
@@ -83,6 +91,15 @@ class StateSpace
 			}
 			return dim+dims;
 		}
+
+		std::string csv()
+		{
+			std::string ret;
+			int dim=coordinates.size();
+			for(int i=0; i<dim; i++)
+				ret += std::string(coordinates[i].get_name()) + "," + momentums[i].get_name();
+			return ret + "," + t.get_name();
+		}
 };
 
 class State
@@ -106,10 +123,15 @@ class State
 
 		State(StateSpace ss)
 		{
-			values = std::valarray<double>(ss.dim());
+			values = std::valarray<double>(ss.dim() * 2);
 		}
 
 		double &q(int i)
+		{
+			return values[i];
+		}
+
+		double q(int i) const
 		{
 			return values[i];
 		}
@@ -120,22 +142,44 @@ class State
 			return values[dim+i];
 		}
 
+		double p(int i) const
+		{
+			int dim=values.size()/2;
+			return values[dim+i];
+		}
+
 		int dim() const
 		{
 			return values.size()/2;
 		}
 
-		State operator+(State &that)
+		State operator+(const State &that) const
 		{
 			return State(this->values+that.values);
 		}
+		
+		State &operator+=(const State &that)
+		{
+			values=values+that.values;
+			return *this;
+		}
 
-		friend State operator*(double left, State &right);
+		friend State operator*(double left, const State &right);
 
 		friend std::ostream& operator<<(std::ostream &, const State &);
+
+		std::string csv()
+		{
+			std::string ret;
+			int dim=values.size()/2;
+			for(int i=0; i<dim; i++)
+				ret += std::to_string(values[i]) + "," + std::to_string(values[dim+i]) + ",";
+			ret.resize(ret.size()-1);
+			return ret;
+		}
 };
 
-State operator*(double left, State &right)
+State operator*(double left, const State &right)
 {
 	return State(left*right.values);
 }
@@ -152,16 +196,16 @@ std::ostream& operator<<(std::ostream &out, const State &s)
 	return out;
 }
 
-std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::ex hamiltonian)
+std::function<State(const State, double)> hamilton_equations(StateSpace &ss, GiNaC::ex hamiltonian)
 {
-	std::vector< std::function<double(State&, double)> > dq_dt(ss.dim()), dp_dt(ss.dim());
+	std::vector< std::function<double(const State, double)> > dq_dt(ss.dim()), dp_dt(ss.dim());
 	std::vector<GiNaC::realsymbol> qs=ss.qs(), ps=ss.ps();
 	GiNaC::realsymbol t=ss.t;
 	for(int i=0; i<ss.dim(); i++)
 	{
 		GiNaC::ex dh_dq=hamiltonian.diff(ss.q(i)),
 			dh_dp=hamiltonian.diff(ss.p(i));
-		dq_dt.push_back([dh_dp, qs, ps, t](State &s, double t_)->double
+		dq_dt[i]=[dh_dp, qs, ps, t](const State s, double t_)->double
 			{
 				GiNaC::lst subs;
 				for(int i=0; i<qs.size(); i++)
@@ -171,9 +215,8 @@ std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::e
 				}
 				subs.append(t == t_);
 				return GiNaC::ex_to<GiNaC::numeric>(dh_dp.subs(subs).evalf()).to_double();
-			}
-		);
-		dp_dt.push_back([dh_dq, qs, ps, t](State &s, double t_)->double
+			};
+		dp_dt[i]=[dh_dq, qs, ps, t](const State s, double t_)->double
 			{
 				GiNaC::lst subs;
 				for(int i=0; i<qs.size(); i++)
@@ -183,10 +226,9 @@ std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::e
 				}
 				subs.append(t == t_);
 				return -GiNaC::ex_to<GiNaC::numeric>(dh_dq.subs(subs).evalf()).to_double();
-			}
-		);
+			};
 	}
-	return [dq_dt, dp_dt](State &s, double t)->State
+	return [dq_dt, dp_dt](const State s, double t)->State
 	{
 		int dim=s.dim();
 		State ret(dim);
@@ -215,7 +257,20 @@ int main()
 	auto ss = StateSpace(1);
 	auto hamiltonian = .5 * ss.p(0) * ss.p(0) + .5 * ss.q(0) * ss.q(0);
 	auto hamilton_eqs = hamilton_equations(ss, hamiltonian);
+	auto s = State(1);
+	s.q(0)=1;
+	s.p(0)=0;
+	double dt=0.001;
 
-	std::cout << hamiltonian << std::endl;
+	std::ofstream outf;
+	outf.open("test");
+	outf << ss.csv() << "\n";
+	for(int i=0; i<10000; i++)
+	{
+		outf << s.csv() << "," << i*dt << "\n";
+		rk4_step(hamilton_eqs, s, i*dt, dt);
+	}
+	outf.close();
+
 	return 0;
 }
