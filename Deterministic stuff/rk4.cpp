@@ -38,12 +38,12 @@ class StateSpace
 			}
 		}
 
-		GiNaC::realsymbol q(int i)
+		GiNaC::realsymbol &q(int i)
 		{
 			return coordinates[i];
 		}
 
-		GiNaC::realsymbol p(int i)
+		GiNaC::realsymbol &p(int i)
 		{
 			return momentums[i];
 		}
@@ -60,7 +60,7 @@ class StateSpace
 			return momentums;
 		}
 
-		int dim()
+		int dim() const
 		{
 			return coordinates.size();
 		}
@@ -89,19 +89,19 @@ class State
 {
 	std::valarray<double> values;
 
+	State(std::valarray<double> values)
+	{
+		if(values.size()%2)
+			throw std::logic_error("Trying to force-initialize ill-formed State");
+		this->values=values;
+	}
+
 	public:
 		double t;
 
 		State(int num_degrees=0)
 		{
-			values = std::valarray<double>(num_degrees);
-		}
-
-		State(std::valarray<double> values)
-		{
-			if(values.size()%2)
-				throw std::logic_error("Trying to force-initialize ill-formed State");
-			this->values=values;
+			values = std::valarray<double>(num_degrees * 2);
 		}
 
 		State(StateSpace ss)
@@ -109,29 +109,18 @@ class State
 			values = std::valarray<double>(ss.dim());
 		}
 
-		double get_q(int i)
+		double &q(int i)
 		{
 			return values[i];
 		}
 
-		double get_p(int i)
+		double &p(int i)
 		{
 			int dim=values.size()/2;
 			return values[dim+i];
 		}
 
-		void set_q(int i, double val)
-		{
-			values[i]=val;
-		}
-
-		void set_p(int i, double val)
-		{
-			int dim=values.size()/2;
-			values[dim+i]=val;
-		}
-
-		int dim()
+		int dim() const
 		{
 			return values.size()/2;
 		}
@@ -142,11 +131,25 @@ class State
 		}
 
 		friend State operator*(double left, State &right);
+
+		friend std::ostream& operator<<(std::ostream &, const State &);
 };
 
 State operator*(double left, State &right)
 {
 	return State(left*right.values);
+}
+
+std::ostream& operator<<(std::ostream &out, const State &s)
+{
+	int dim=s.dim();
+	out << "[";
+	if(dim>0)
+		out << "(" << s.values[0] << ", " << s.values[dim] << ")";
+	for(int i=1; i<dim; i++)
+		out << ", (" << s.values[i] << ", " << s.values[dim+i] << ")";
+	out << "]";
+	return out;
 }
 
 std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::ex hamiltonian)
@@ -163,8 +166,8 @@ std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::e
 				GiNaC::lst subs;
 				for(int i=0; i<qs.size(); i++)
 				{
-					subs.append(qs[i] == s.get_q(i));
-					subs.append(ps[i] == s.get_p(i));
+					subs.append(qs[i] == s.q(i));
+					subs.append(ps[i] == s.p(i));
 				}
 				subs.append(t == t_);
 				return GiNaC::ex_to<GiNaC::numeric>(dh_dp.subs(subs).evalf()).to_double();
@@ -175,8 +178,8 @@ std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::e
 				GiNaC::lst subs;
 				for(int i=0; i<qs.size(); i++)
 				{
-					subs.append(qs[i] == s.get_q(i));
-					subs.append(ps[i] == s.get_p(i));
+					subs.append(qs[i] == s.q(i));
+					subs.append(ps[i] == s.p(i));
 				}
 				subs.append(t == t_);
 				return -GiNaC::ex_to<GiNaC::numeric>(dh_dq.subs(subs).evalf()).to_double();
@@ -189,8 +192,8 @@ std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::e
 		State ret(dim);
 		for(int i=0; i<dim; i++)
 		{
-			ret.set_q(i, dq_dt[i](s, t));
-			ret.set_p(i, dp_dt[i](s, t));
+			ret.q(i)=dq_dt[i](s, t);
+			ret.p(i)=dp_dt[i](s, t);
 		}
 		return ret;
 	};
@@ -210,16 +213,9 @@ int main()
 {
 	using namespace GiNaC;
 	auto ss = StateSpace(1);
+	auto hamiltonian = .5 * ss.p(0) * ss.p(0) + .5 * ss.q(0) * ss.q(0);
+	auto hamilton_eqs = hamilton_equations(ss, hamiltonian);
 
-	std::cout << ss.q(0) << std::endl;
-
-	realsymbol x, y;
-	ex poly;
-
-	for(int i=0; i<3; i++)
-		poly += factorial(i+16)*pow(x, i)*pow(y, 2-i);
-
-	// std::cout << poly << std::endl;
-	// std::cout << poly.subs(x == 1).subs(y == 3) << std::endl;
+	std::cout << hamiltonian << std::endl;
 	return 0;
 }
