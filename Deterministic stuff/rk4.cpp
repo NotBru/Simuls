@@ -9,10 +9,10 @@
 
 template<typename T>
 void rk4_step(
-	std::function<T(const T&, double)> f,
+	std::function<T(T&, double)> f,
 	T &x, double t, double dt,
-	std::function<T(const T&, const T&)> sum = [](const T &left, const T &right)->T{ return left+right; },
-	std::function<T(double, const T&)> prod = [](double left, const T &right)->T{ return left*right; }
+	std::function<T(T&, T&)> sum = [](T &left, T &right)->T{ return left+right; },
+	std::function<T(double, T&)> prod = [](double left, T &right)->T{ return left*right; }
 )
 {
 	T k1=f(x, t),
@@ -48,7 +48,7 @@ class StateSpace
 			return momentums[i];
 		}
 
-		GiNaC::realsymbol t("t");
+		GiNaC::realsymbol t=GiNaC::realsymbol("t");
 
 		std::vector<GiNaC::realsymbol> qs()
 		{
@@ -136,29 +136,29 @@ class State
 			return values.size()/2;
 		}
 
-		State operator+(const State &that)
+		State operator+(State &that)
 		{
 			return State(this->values+that.values);
 		}
 
-		friend State operator*(const double left, const State &right);
+		friend State operator*(double left, State &right);
 };
 
-State operator*(const double left, const State &right)
+State operator*(double left, State &right)
 {
 	return State(left*right.values);
 }
 
-std::function<State(const State&, double)> hamilton_equations(const StateSpace &ss, GiNaC::ex hamiltonian)
+std::function<State(State&, double)> hamilton_equations(StateSpace &ss, GiNaC::ex hamiltonian)
 {
-	std::vector< std::function<double(const State&, double)> > dq_dt(ss.dim()), dp_dt(ss.dim());
+	std::vector< std::function<double(State&, double)> > dq_dt(ss.dim()), dp_dt(ss.dim());
 	std::vector<GiNaC::realsymbol> qs=ss.qs(), ps=ss.ps();
 	GiNaC::realsymbol t=ss.t;
 	for(int i=0; i<ss.dim(); i++)
 	{
 		GiNaC::ex dh_dq=hamiltonian.diff(ss.q(i)),
 			dh_dp=hamiltonian.diff(ss.p(i));
-		dq_dt.push_back([dh_dp, qs, ps, t](const State &s, double t_)->double
+		dq_dt.push_back([dh_dp, qs, ps, t](State &s, double t_)->double
 			{
 				GiNaC::lst subs;
 				for(int i=0; i<qs.size(); i++)
@@ -167,10 +167,10 @@ std::function<State(const State&, double)> hamilton_equations(const StateSpace &
 					subs.append(ps[i] == s.get_p(i));
 				}
 				subs.append(t == t_);
-				return GiNaC::evalf(dh_dp.subs(subs));
+				return GiNaC::ex_to<GiNaC::numeric>(dh_dp.subs(subs).evalf()).to_double();
 			}
 		);
-		dp_dt.push_back([dh_dq, qs, ps, t](const State &s, double t_)->double
+		dp_dt.push_back([dh_dq, qs, ps, t](State &s, double t_)->double
 			{
 				GiNaC::lst subs;
 				for(int i=0; i<qs.size(); i++)
@@ -179,21 +179,21 @@ std::function<State(const State&, double)> hamilton_equations(const StateSpace &
 					subs.append(ps[i] == s.get_p(i));
 				}
 				subs.append(t == t_);
-				return -GiNaC::evalf(dh_dp.subs(subs));
+				return -GiNaC::ex_to<GiNaC::numeric>(dh_dq.subs(subs).evalf()).to_double();
 			}
 		);
 	}
-	return [dq_dt, dp_dt](const State &s, double t)->State
+	return [dq_dt, dp_dt](State &s, double t)->State
 	{
 		int dim=s.dim();
 		State ret(dim);
 		for(int i=0; i<dim; i++)
 		{
-			ret.set_q(i, dq_dt(s, t));
-			ret.set_p(i, dp_dt(s, t));
+			ret.set_q(i, dq_dt[i](s, t));
+			ret.set_p(i, dp_dt[i](s, t));
 		}
 		return ret;
-	}
+	};
 }
 
 /*
