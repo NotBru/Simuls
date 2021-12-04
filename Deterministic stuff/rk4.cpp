@@ -353,9 +353,9 @@ int main()
 			0
 		};
 
-	for(int i=1; i<10; i++)
+	for(int i=1; i<height; i++)
 	{
-		for(int j=0; j<10; j++)
+		for(int j=0; j<width; j++)
 		{
 			GiNaC::ex neighbour_diff;
 			neighbour_diff = q[szr[i-1][j]]-q[szr[i][j]];
@@ -366,7 +366,11 @@ int main()
 		GiNaC::ex border_q;
 		border_q = q[szr[i][0]];
 		potential_energy += border_q*border_q;
+		border_q = q[szr[i][width-1]];
+		potential_energy += border_q*border_q;
 		border_q=q[szr[0][i]];
+		potential_energy += border_q*border_q;
+		border_q=q[szr[width-1][i]];
 		potential_energy += border_q*border_q;
 	}
 	potential_energy /= 2;
@@ -390,8 +394,6 @@ int main()
 			      );
 		s.q(szr[i][j]) = radial_func(dist);
 	}
-	s.p(szr[height/2][width/2+1])=4;
-	s.p(szr[height/2][width/2])=-4;
 	double dt=0.05;
 
 	std::ofstream outf;
@@ -399,6 +401,7 @@ int main()
 	outf << ss.csv() << "\n";
 	for(int i=0; i<500; i++)
 	{
+		if(i%10==0) outf.flush();
 		outf << s.csv() << "," << i*dt << "\n";
 		rk4_step(hamilton_eqs, s, i*dt, dt);
 	}
