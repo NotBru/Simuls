@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <numeric>
+#include <sstream>
 #include <string>
 #include <valarray>
 #include <vector>
@@ -330,6 +331,38 @@ double radial_func(double dist)
 	return exp(-0.5*dist/sigma*sigma);
 }
 
+bool get_last_values(std::string fn, State &s, double &t)
+{
+	std::ifstream inf(fn);
+	if(inf)
+	{
+		std::string last_line;
+		std::string value;
+		std::string line;
+		while(std::getline(inf, line)) if(line != "") last_line=line;
+		// F. it, we do it cavernicola style
+		int dim=s.dim();
+		int j=-1;
+		for(int i=0; i<dim; i++)
+		{
+			value = "";
+			for(j++;last_line[j]!=','; j++)
+				value += last_line[j];
+			s.q(i) = std::stod(value);
+			value = "";
+			for(j++;last_line[j]!=','; j++)
+				value += last_line[j];
+			s.p(i) = std::stod(value);
+		}
+		value = "";
+		for(j++;last_line[j]!=','; j++)
+			value += last_line[j];
+		t = std::stod(value);
+		return true;
+	}
+	return false;
+}
+
 int main()
 {
 	int width=20,
@@ -394,16 +427,22 @@ int main()
 			      );
 		s.q(szr[i][j]) = radial_func(dist);
 	}
+	double t_offset = 0;
 	double dt=0.05;
 
 	std::ofstream outf;
-	outf.open("test");
-	outf << ss.csv() << "\n";
+	if(get_last_values("test", s, t_offset))
+		outf.open("test", std::ios_base::app);
+	else
+	{
+		outf.open("test");
+		outf << ss.csv() << "\n";
+	}
 	for(int i=0; i<500; i++)
 	{
 		if(i%10==0) outf.flush();
-		outf << s.csv() << "," << i*dt << "\n";
-		rk4_step(hamilton_eqs, s, i*dt, dt);
+		outf << s.csv() << "," << t_offset + i*dt << "\n";
+		rk4_step(hamilton_eqs, s, t_offset + i*dt, dt);
 	}
 	outf.close();
 
