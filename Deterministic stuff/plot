@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import ListedColormap
 from pathlib import Path
+from sys import argv
 
 plots_folder = Path.cwd() / "plots"
 plots_folder.mkdir(exist_ok=True)
@@ -29,14 +31,14 @@ def flatten(row):
         vals[i, j] = float(pos_cols[f"q_{i}_{j}"])
     return vals
 
-print(len(data))
-for i in range(len(data)):
+first = 0
+if len(argv) == 2:
+    if argv[1] == "resume":
+        first = max(map(lambda fp: int(fp.name.split('.', 1)[0]), plots_folder.iterdir()))+1
+
+print(f"Plotting {len(data)-first} images, from {first} to {len(data)}")
+for i in range(first, len(data)):
     fig, ax = plt.subplots(figsize=(9, 9))
     ax.imshow(flatten(data.iloc[i]), vmin=-field_lim, vmax=field_lim, cmap=cmap)
     fig.savefig(plots_folder / f"{i}.png")
     plt.close(fig)
-
-# ax.set_xlim(-1.5, 1.5)
-# ax.set_ylim(-0.0001, 0.0005)
-# ax.plot(data["q1"], data["q2"])
-# ax.plot(data["q4"], data["q5"])
